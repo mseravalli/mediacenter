@@ -1,19 +1,58 @@
 <!DOCTYPE html>
 <html>
-<style>
+<head>
+  <style>
 
-.center {
-  margin: auto;
-  text-align: center;
-}
+  .center {
+    margin: auto;
+    text-align: center;
+  }
 
-.logo {
-  padding: 1em 1em 0em 1em;
-  width: 10em;
-  height: 10em;
-}
+  .logo {
+    padding: 1em 1em 0em 1em;
+    width: 10em;
+    height: 10em;
+  }
 
-</style>
+  .red_background {
+    background-color: #FF0000
+   }
+
+  .yellow_background {
+    background-color: #FFFF00
+   }
+
+  .green_background {
+    background-color: #00FF00
+   }
+
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.4/jquery.min.js"></script>
+  <script>
+    $(document).ready(function(){
+      $("#vpn_italy").click(function(){
+        $("#vpn_italy_img").addClass("yellow_background");
+      });
+    });
+
+    function poll(){
+      $.ajax({
+        url: "localhost:8080/is_connected",
+        data: {
+          location: "italy"
+        },
+        success: function( result ) {
+          $("#vpn_italy_img").addClass("yellow_background");
+        },
+        error: function() {
+          $("#vpn_italy_img").addClass("red_background");
+        }
+      });
+    }
+
+    setInterval(poll, 1000);
+  </script>
+</head>
 <body>
 
 <table class="center">
@@ -54,6 +93,26 @@
       <a href="https://www.bayern3.de/">
         <img class="logo" src="img/bayern_3.svg"/>
         <p class="center">Bayern 3</p>
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <a href="https://www.raiplay.it/">
+        <img class="logo" src="img/rai.svg"/>
+        <p class="center">Rai</p>
+      </a>
+    </td>
+    <td>
+      <a href="#todo"id="vpn_italy"  >
+        <img class="logo" id="vpn_italy_img" src="img/vpn.png"/>
+        <p class="center">VPN Italy</p>
+      </a>
+    </td>
+    <td>
+      <a href="#todo" >
+        <img class="logo" id="vpn_uk_img" src="img/vpn.png"/>
+        <p class="center">VPN UK</p>
       </a>
     </td>
   </tr>
