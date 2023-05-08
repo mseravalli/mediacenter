@@ -28,30 +28,7 @@
 
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.4/jquery.min.js"></script>
-  <script>
-    $(document).ready(function(){
-      $("#vpn_italy").click(function(){
-        $("#vpn_italy_img").addClass("yellow_background");
-      });
-    });
-
-    function poll(){
-      $.ajax({
-        url: "localhost:8080/is_connected",
-        data: {
-          location: "italy"
-        },
-        success: function( result ) {
-          $("#vpn_italy_img").addClass("yellow_background");
-        },
-        error: function() {
-          $("#vpn_italy_img").addClass("red_background");
-        }
-      });
-    }
-
-    setInterval(poll, 1000);
-  </script>
+  <script src="src/index.js"> </script>
 </head>
 <body>
 
