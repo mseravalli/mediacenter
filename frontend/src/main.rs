@@ -102,8 +102,7 @@ async fn connect(
                 running_processes.remove(&l);
                 Ok(format!("Already connected to {}.", &l))
             } else {
-                let running_processes = data.running_processes.lock().unwrap();
-                if running_processes.get(&l).is_some() {
+                if data.running_processes.lock().unwrap().get(&l).is_some() {
                     Ok(format!("Connection to {} in progress.", &l))
                 } else {
                     let id = create_vpn_server(&data.vpn_setup_path, &l)

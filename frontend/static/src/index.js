@@ -40,12 +40,18 @@ function poll(){
       location: "IT"
     },
     success: function( result ) {
+      $("#vpn_italy_img").removeClass("green_background");
+      $("#vpn_italy_img").removeClass("yellow_background");
+      $("#vpn_italy_img").removeClass("red_background");
       if (result == "Already connected to IT.") {
         $("#vpn_italy_img").addClass("green_background");
+        console.log("green");
       } else if (result == "Connection to IT in progress.") {
         $("#vpn_italy_img").addClass("yellow_background");
+        console.log("yellow");
       } else {
         $("#vpn_italy_img").addClass("red_background");
+        console.log("red");
       }
     },
     error: function() {
@@ -58,6 +64,9 @@ function poll(){
       location: "DE"
     },
     success: function( result ) {
+      $("#vpn_germany_img").removeClass("green_background");
+      $("#vpn_germany_img").removeClass("yellow_background");
+      $("#vpn_germany_img").removeClass("red_background");
       if (result == "Already connected to DE.") {
         $("#vpn_germany_img").addClass("green_background");
       } else if (result == "Connection to DE in progress.") {
