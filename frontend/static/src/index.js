@@ -45,13 +45,10 @@ function poll(){
       $("#vpn_italy_img").removeClass("red_background");
       if (result == "Already connected to IT.") {
         $("#vpn_italy_img").addClass("green_background");
-        console.log("green");
       } else if (result == "Connection to IT in progress.") {
         $("#vpn_italy_img").addClass("yellow_background");
-        console.log("yellow");
       } else {
         $("#vpn_italy_img").addClass("red_background");
-        console.log("red");
       }
     },
     error: function() {
