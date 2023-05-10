@@ -9,10 +9,17 @@ use actix_web::{
 };
 use actix_web_lab::respond::Html;
 use log::{debug, info};
+use serde::Deserialize;
 use std::collections::HashMap;
-use std::process::Command;
+use std::io;
+use std::process::{Child, Command};
 use std::sync::Mutex;
 use tera::Tera;
+
+#[derive(Debug, Deserialize)]
+struct ConnectQuery {
+    location: String,
+}
 
 // store tera template in application state
 async fn index(
@@ -34,52 +41,41 @@ async fn index(
     Ok(Html(s))
 }
 
-fn create_vpn_server(path: &str, region: &str) -> Result<String, String> {
-    Command::new(path)
-        .spawn()
-        .expect("Failed to execute process");
-    Ok(format!("{region}"))
+fn create_vpn_server(path: &str, region: &str) -> Result<u32, io::Error> {
+    Command::new(path).spawn().map(|x| x.id())
 }
 
-async fn connect(req: HttpRequest, data: web::Data<AppState>) -> HttpResponse {
-    debug!("REQ: {req:?}");
-    info!("REQ: {:?}", req.query_string());
-    let query = web::Query::<HashMap<String, String>>::from_query(req.query_string())
-        .map_err(|e| HttpResponse::BadRequest().json(format!("Wrong request format: {:?}", e)));
-
-    let location = query.and_then(|x| match x.get("location") {
-        Some(val) => Ok(val.clone()),
-        None => Err(HttpResponse::BadRequest().json(format!("Location not present"))),
-    });
-
-    let res = location.and_then(|x| match x.as_str() {
+async fn connect_result(
+    req: HttpRequest,
+    query: web::Query<ConnectQuery>,
+    data: web::Data<AppState>,
+) -> Result<impl Responder, Error> {
+    match query.location.as_str() {
         l if l == "italy" || l == "germany" => {
-            // sdf
             if data.running_process.lock().unwrap().is_some() {
-                Ok("Already running".to_string())
+                Ok(format!("Already running."))
             } else {
-                create_vpn_server(&data.vnp_server_setup_path, l)
-            }
-            .map(|x| l.to_string())
-            .map_err(|e| {
-                HttpResponse::InternalServerError().json(format!(
-                    "Error occurred while setting up the connection: {e}"
-                ))
-            })
-        }
-        l => Err(HttpResponse::BadRequest().json(format!("Cannot connect to {l}"))),
-    });
+                let id = create_vpn_server(&data.vnp_server_setup_path, l)
+                    .map_err(|e| error::ErrorInternalServerError(e.to_string()));
 
-    match res {
-        Ok(x) => HttpResponse::Ok().json(format!("Started VPN setup to {}", x)),
-        Err(e) => e,
+                id.map(|id| {
+                    let mut running_process = data.running_process.lock().unwrap();
+                    *running_process = Some(id);
+                    format!("Started connection.")
+                })
+            }
+        }
+        l => Err(error::ErrorBadRequest(format!(
+            "Connection to {} not supported.",
+            l
+        ))),
     }
 }
 
 struct AppState {
     vnp_server_setup_path: String,
     vpn_client_path: String,
-    running_process: Mutex<Option<usize>>, // <- Mutex is necessary to mutate safely across threads
+    running_process: Mutex<Option<u32>>, // <- Mutex is necessary to mutate safely across threads
 }
 
 #[actix_web::main]
@@ -90,7 +86,7 @@ async fn main() -> std::io::Result<()> {
     info!("starting HTTP server at http://localhost:{}", port);
 
     let app_state = web::Data::new(AppState {
-        vnp_server_setup_path: format!(""),
+        vnp_server_setup_path: format!("/tmp/test.sh"),
         vpn_client_path: format!(""),
         running_process: Mutex::new(None),
     });
@@ -104,7 +100,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .service(Files::new("/img", "static/img/").show_files_listing())
             .service(Files::new("/src", "static/src/").show_files_listing())
-            .service(web::resource("/connect").route(web::get().to(connect)))
+            .service(web::resource("/connect").route(web::get().to(connect_result)))
             .service(web::resource("/").route(web::get().to(index)))
             .service(web::scope("").wrap(error_handlers()))
     })
