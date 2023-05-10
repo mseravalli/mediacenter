@@ -7,9 +7,11 @@ edition = "2021"
 
 [dependencies]
 actix-files = "0"
+awc ="3"
 actix-web = "4"
 actix-web-lab = "0"
 env_logger = "0"
 log = "0"
 serde = { version = "1", features = ["derive"] }
-tera = "1.8"
+serde_json = { version = "1" }
+tera = "1"

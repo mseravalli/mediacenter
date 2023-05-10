@@ -10,7 +10,6 @@ use actix_web::{
 use actix_web_lab::respond::Html;
 use log::{debug, info};
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::io;
 use std::process::{Child, Command};
 use std::sync::Mutex;
@@ -22,47 +21,80 @@ struct ConnectQuery {
 }
 
 // store tera template in application state
-async fn index(
-    tmpl: web::Data<tera::Tera>,
-    query: web::Query<HashMap<String, String>>,
-) -> Result<impl Responder, Error> {
-    let s = if let Some(name) = query.get("name") {
-        // submitted form
-        let mut ctx = tera::Context::new();
-        ctx.insert("name", name);
-        ctx.insert("text", "Welcome!");
-        tmpl.render("user.html", &ctx)
-            .map_err(|_| error::ErrorInternalServerError("Template error"))?
-    } else {
-        tmpl.render("index.html", &tera::Context::new())
-            .map_err(|_| error::ErrorInternalServerError("Template error"))?
-    };
+async fn index(tmpl: web::Data<tera::Tera>) -> Result<impl Responder, Error> {
+    let s = tmpl
+        .render("index.html", &tera::Context::new())
+        .map_err(|_| error::ErrorInternalServerError("Template error"))?;
 
     Ok(Html(s))
 }
 
-fn create_vpn_server(path: &str, region: &str) -> Result<u32, io::Error> {
-    Command::new(path).spawn().map(|x| x.id())
+// TODO: use an eum for the location
+async fn is_connected_to_location(location: &str) -> Result<bool, Error> {
+    let client = awc::Client::default();
+    let req = client.get("http://ifconfig.io/all.json");
+    let mut res = req
+        .send()
+        .await
+        .map_err(|e| error::ErrorInternalServerError(e.to_string()))?;
+    let body = res
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| error::ErrorInternalServerError(e.to_string()))?;
+    let country_code = body
+        .get("country_code")
+        .ok_or_else(|| error::ErrorInternalServerError("country_code not found"))?;
+    if country_code == location {
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
-async fn connect_result(
-    req: HttpRequest,
+async fn is_connected(
+    query: web::Query<ConnectQuery>,
+    data: web::Data<AppState>,
+) -> Result<impl Responder, Error> {
+    let l = &query.location;
+
+    if is_connected_to_location(l).await? {
+        let mut running_process = data.running_process.lock().unwrap();
+        *running_process = None;
+        Ok(format!("Already connected to {}.", l))
+    } else {
+        if data.running_process.lock().unwrap().is_some() {
+            Ok(format!("Connection to {} in progress.", l))
+        } else {
+            Ok(format!("Connection to {} not started.", l))
+        }
+    }
+}
+
+fn create_vpn_server(path: &str, region: &str) -> Result<u32, io::Error> {
+    Command::new(path).arg(region).spawn().map(|x| x.id())
+}
+
+async fn connect(
     query: web::Query<ConnectQuery>,
     data: web::Data<AppState>,
 ) -> Result<impl Responder, Error> {
     match query.location.as_str() {
-        l if l == "italy" || l == "germany" => {
-            if data.running_process.lock().unwrap().is_some() {
-                Ok(format!("Already running."))
+        l if l == "IT" || l == "DE" => {
+            if is_connected_to_location(l).await? {
+                let mut running_process = data.running_process.lock().unwrap();
+                *running_process = None;
+                Ok(format!("Already connected to {}.", l))
             } else {
-                let id = create_vpn_server(&data.vnp_server_setup_path, l)
-                    .map_err(|e| error::ErrorInternalServerError(e.to_string()));
+                if data.running_process.lock().unwrap().is_some() {
+                    Ok(format!("Connection to {} in progress.", l))
+                } else {
+                    let id = create_vpn_server(&data.vpn_setup_path, l)
+                        .map_err(|e| error::ErrorInternalServerError(e.to_string()))?;
 
-                id.map(|id| {
                     let mut running_process = data.running_process.lock().unwrap();
                     *running_process = Some(id);
-                    format!("Started connection.")
-                })
+                    Ok(format!("Started connection."))
+                }
             }
         }
         l => Err(error::ErrorBadRequest(format!(
@@ -73,8 +105,7 @@ async fn connect_result(
 }
 
 struct AppState {
-    vnp_server_setup_path: String,
-    vpn_client_path: String,
+    vpn_setup_path: String,
     running_process: Mutex<Option<u32>>, // <- Mutex is necessary to mutate safely across threads
 }
 
@@ -86,8 +117,7 @@ async fn main() -> std::io::Result<()> {
     info!("starting HTTP server at http://localhost:{}", port);
 
     let app_state = web::Data::new(AppState {
-        vnp_server_setup_path: format!("/tmp/test.sh"),
-        vpn_client_path: format!(""),
+        vpn_setup_path: format!("/tmp/test.sh"),
         running_process: Mutex::new(None),
     });
 
@@ -100,7 +130,8 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .service(Files::new("/img", "static/img/").show_files_listing())
             .service(Files::new("/src", "static/src/").show_files_listing())
-            .service(web::resource("/connect").route(web::get().to(connect_result)))
+            .service(web::resource("/connect").route(web::get().to(connect)))
+            .service(web::resource("/is_connected").route(web::get().to(is_connected)))
             .service(web::resource("/").route(web::get().to(index)))
             .service(web::scope("").wrap(error_handlers()))
     })
