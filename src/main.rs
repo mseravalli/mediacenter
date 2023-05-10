@@ -5,19 +5,30 @@ use actix_web::{
     error,
     http::{header::ContentType, StatusCode},
     middleware::{self, ErrorHandlerResponse, ErrorHandlers},
-    web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder, Result,
+    web, App, Error, HttpResponse, HttpServer, Responder, Result,
 };
 use actix_web_lab::respond::Html;
-use log::{debug, info};
+use log::info;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::io;
-use std::process::{Child, Command};
+use std::process::Command;
+use std::str::FromStr;
+use std::string::ToString;
 use std::sync::Mutex;
+use strum_macros::Display;
+use strum_macros::EnumString;
 use tera::Tera;
+
+#[derive(Copy, Clone, Debug, Deserialize, EnumString, Display, PartialEq)]
+enum Location {
+    IT,
+    DE,
+}
 
 #[derive(Debug, Deserialize)]
 struct ConnectQuery {
-    location: String,
+    location: Location,
 }
 
 // store tera template in application state
@@ -30,7 +41,7 @@ async fn index(tmpl: web::Data<tera::Tera>) -> Result<impl Responder, Error> {
 }
 
 // TODO: use an eum for the location
-async fn is_connected_to_location(location: &str) -> Result<bool, Error> {
+async fn is_connected_to_location(location: &Location) -> Result<bool, Error> {
     let client = awc::Client::default();
     let req = client.get("http://ifconfig.io/all.json");
     let mut res = req
@@ -44,7 +55,9 @@ async fn is_connected_to_location(location: &str) -> Result<bool, Error> {
     let country_code = body
         .get("country_code")
         .ok_or_else(|| error::ErrorInternalServerError("country_code not found"))?;
-    if country_code == location {
+    let location_from_country_code = Location::from_str(country_code.as_str().unwrap())
+        .map_err(|e| error::ErrorInternalServerError(e.to_string()))?;
+    if location_from_country_code == *location {
         Ok(true)
     } else {
         Ok(false)
@@ -70,25 +83,28 @@ async fn is_connected(
     }
 }
 
-fn create_vpn_server(path: &str, region: &str) -> Result<u32, io::Error> {
-    Command::new(path).arg(region).spawn().map(|x| x.id())
+fn create_vpn_server(path: &str, region: &Location) -> Result<u32, io::Error> {
+    Command::new(path)
+        .arg(region.to_string().as_str())
+        .spawn()
+        .map(|x| x.id())
 }
 
 async fn connect(
     query: web::Query<ConnectQuery>,
     data: web::Data<AppState>,
 ) -> Result<impl Responder, Error> {
-    match query.location.as_str() {
-        l if l == "IT" || l == "DE" => {
-            if is_connected_to_location(l).await? {
+    match query.location {
+        l if l == Location::IT || l == Location::DE => {
+            if is_connected_to_location(&l).await? {
                 let mut running_process = data.running_process.lock().unwrap();
                 *running_process = None;
-                Ok(format!("Already connected to {}.", l))
+                Ok(format!("Already connected to {}.", &l))
             } else {
                 if data.running_process.lock().unwrap().is_some() {
-                    Ok(format!("Connection to {} in progress.", l))
+                    Ok(format!("Connection to {} in progress.", &l))
                 } else {
-                    let id = create_vpn_server(&data.vpn_setup_path, l)
+                    let id = create_vpn_server(&data.vpn_setup_path, &l)
                         .map_err(|e| error::ErrorInternalServerError(e.to_string()))?;
 
                     let mut running_process = data.running_process.lock().unwrap();
@@ -99,7 +115,7 @@ async fn connect(
         }
         l => Err(error::ErrorBadRequest(format!(
             "Connection to {} not supported.",
-            l
+            &l
         ))),
     }
 }
