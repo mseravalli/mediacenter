@@ -8,10 +8,13 @@ use actix_web::{
     web, App, Error, HttpResponse, HttpServer, Responder, Result,
 };
 use actix_web_lab::respond::Html;
+use clap::Parser;
 use log::info;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::env;
 use std::io;
+use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
@@ -20,7 +23,7 @@ use strum_macros::Display;
 use strum_macros::EnumString;
 use tera::Tera;
 
-#[derive(Copy, Clone, Debug, Deserialize, EnumString, Display, PartialEq)]
+#[derive(Copy, Clone, Debug, Deserialize, EnumString, Display, PartialEq, Hash, Eq)]
 enum Location {
     IT,
     DE,
@@ -71,11 +74,11 @@ async fn is_connected(
     let l = &query.location;
 
     if is_connected_to_location(l).await? {
-        let mut running_process = data.running_process.lock().unwrap();
-        *running_process = None;
+        let mut running_processes = data.running_processes.lock().unwrap();
+        running_processes.remove(&l);
         Ok(format!("Already connected to {}.", l))
     } else {
-        if data.running_process.lock().unwrap().is_some() {
+        if data.running_processes.lock().unwrap().get(&l).is_some() {
             Ok(format!("Connection to {} in progress.", l))
         } else {
             Ok(format!("Connection to {} not started.", l))
@@ -84,7 +87,10 @@ async fn is_connected(
 }
 
 fn create_vpn_server(path: &str, region: &Location) -> Result<u32, io::Error> {
-    Command::new(path)
+    let dir = Path::new(path).parent().unwrap();
+    env::set_current_dir(&dir);
+    let file_name = Path::new(path);
+    Command::new(file_name)
         .arg(region.to_string().as_str())
         .spawn()
         .map(|x| x.id())
@@ -97,18 +103,18 @@ async fn connect(
     match query.location {
         l if l == Location::IT || l == Location::DE => {
             if is_connected_to_location(&l).await? {
-                let mut running_process = data.running_process.lock().unwrap();
-                *running_process = None;
+                let mut running_processes = data.running_processes.lock().unwrap();
+                running_processes.remove(&l);
                 Ok(format!("Already connected to {}.", &l))
             } else {
-                if data.running_process.lock().unwrap().is_some() {
+                if data.running_processes.lock().unwrap().get(&l).is_some() {
                     Ok(format!("Connection to {} in progress.", &l))
                 } else {
                     let id = create_vpn_server(&data.vpn_setup_path, &l)
                         .map_err(|e| error::ErrorInternalServerError(e.to_string()))?;
 
-                    let mut running_process = data.running_process.lock().unwrap();
-                    *running_process = Some(id);
+                    let mut running_processes = data.running_processes.lock().unwrap();
+                    running_processes.insert(l, id);
                     Ok(format!("Started connection."))
                 }
             }
@@ -122,19 +128,29 @@ async fn connect(
 
 struct AppState {
     vpn_setup_path: String,
-    running_process: Mutex<Option<u32>>, // <- Mutex is necessary to mutate safely across threads
+    running_processes: Mutex<HashMap<Location, u32>>, // <- Mutex is necessary to mutate safely across threads
+}
+
+#[derive(Parser, Debug)]
+#[command(author, version)]
+struct Args {
+    /// Name of the person to greet
+    #[arg(long)]
+    vpn_setup_path: String,
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
+    let args = Args::parse();
+
     let port = 8080;
     info!("starting HTTP server at http://localhost:{}", port);
 
     let app_state = web::Data::new(AppState {
-        vpn_setup_path: format!("/tmp/test.sh"),
-        running_process: Mutex::new(None),
+        vpn_setup_path: args.vpn_setup_path,
+        running_processes: Mutex::new(HashMap::new()),
     });
 
     HttpServer::new(move || {
