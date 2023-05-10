@@ -8,6 +8,7 @@ use actix_web::{
     web, App, Error, HttpResponse, HttpServer, Responder, Result,
 };
 use actix_web_lab::respond::Html;
+use clap::Parser;
 use log::info;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -125,15 +126,25 @@ struct AppState {
     running_process: Mutex<Option<u32>>, // <- Mutex is necessary to mutate safely across threads
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version)]
+struct Args {
+    /// Name of the person to greet
+    #[arg(long)]
+    vpn_setup_path: String,
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+
+    let args = Args::parse();
 
     let port = 8080;
     info!("starting HTTP server at http://localhost:{}", port);
 
     let app_state = web::Data::new(AppState {
-        vpn_setup_path: format!("/tmp/test.sh"),
+        vpn_setup_path: args.vpn_setup_path,
         running_process: Mutex::new(None),
     });
 
