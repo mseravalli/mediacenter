@@ -21,7 +21,7 @@ use strum_macros::Display;
 use strum_macros::EnumString;
 use tera::Tera;
 
-#[derive(Copy, Clone, Debug, Deserialize, EnumString, Display, PartialEq)]
+#[derive(Copy, Clone, Debug, Deserialize, EnumString, Display, PartialEq, Hash, Eq)]
 enum Location {
     IT,
     DE,
@@ -72,11 +72,11 @@ async fn is_connected(
     let l = &query.location;
 
     if is_connected_to_location(l).await? {
-        let mut running_process = data.running_process.lock().unwrap();
-        *running_process = None;
+        let mut running_processes = data.running_processes.lock().unwrap();
+        running_processes.remove(&l);
         Ok(format!("Already connected to {}.", l))
     } else {
-        if data.running_process.lock().unwrap().is_some() {
+        if data.running_processes.lock().unwrap().get(&l).is_some() {
             Ok(format!("Connection to {} in progress.", l))
         } else {
             Ok(format!("Connection to {} not started.", l))
@@ -98,18 +98,19 @@ async fn connect(
     match query.location {
         l if l == Location::IT || l == Location::DE => {
             if is_connected_to_location(&l).await? {
-                let mut running_process = data.running_process.lock().unwrap();
-                *running_process = None;
+                let mut running_processes = data.running_processes.lock().unwrap();
+                running_processes.remove(&l);
                 Ok(format!("Already connected to {}.", &l))
             } else {
-                if data.running_process.lock().unwrap().is_some() {
+                let running_processes = data.running_processes.lock().unwrap();
+                if running_processes.get(&l).is_some() {
                     Ok(format!("Connection to {} in progress.", &l))
                 } else {
                     let id = create_vpn_server(&data.vpn_setup_path, &l)
                         .map_err(|e| error::ErrorInternalServerError(e.to_string()))?;
 
-                    let mut running_process = data.running_process.lock().unwrap();
-                    *running_process = Some(id);
+                    let mut running_processes = data.running_processes.lock().unwrap();
+                    running_processes.insert(l, id);
                     Ok(format!("Started connection."))
                 }
             }
@@ -123,7 +124,7 @@ async fn connect(
 
 struct AppState {
     vpn_setup_path: String,
-    running_process: Mutex<Option<u32>>, // <- Mutex is necessary to mutate safely across threads
+    running_processes: Mutex<HashMap<Location, u32>>, // <- Mutex is necessary to mutate safely across threads
 }
 
 #[derive(Parser, Debug)]
@@ -145,7 +146,7 @@ async fn main() -> std::io::Result<()> {
 
     let app_state = web::Data::new(AppState {
         vpn_setup_path: args.vpn_setup_path,
-        running_process: Mutex::new(None),
+        running_processes: Mutex::new(HashMap::new()),
     });
 
     HttpServer::new(move || {
