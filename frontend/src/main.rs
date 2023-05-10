@@ -12,7 +12,9 @@ use clap::Parser;
 use log::info;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::env;
 use std::io;
+use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
@@ -85,7 +87,10 @@ async fn is_connected(
 }
 
 fn create_vpn_server(path: &str, region: &Location) -> Result<u32, io::Error> {
-    Command::new(path)
+    let dir = Path::new(path).parent().unwrap();
+    env::set_current_dir(&dir);
+    let file_name = Path::new(path);
+    Command::new(file_name)
         .arg(region.to_string().as_str())
         .spawn()
         .map(|x| x.id())
