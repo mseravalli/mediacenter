@@ -1,5 +1,5 @@
 Can be used with:
 
 ```bash
-/usr/bin/cec-client | /home/seravalli/workspace/cec-mouse/move_mouse.py
+/usr/bin/cec-client | ./move_mouse.py
 ```
